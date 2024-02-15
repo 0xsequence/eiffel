@@ -1,0 +1,10 @@
+files:
+  - path: cmd
+    source: /workspace/cmd
+    mode: "0644"
+  - path: env
+    source: /workspace/env
+    mode: "0644"
+  - path: rootfs/app/your-binary
+    source: /workspace/your-binary
+    mode: "0755"

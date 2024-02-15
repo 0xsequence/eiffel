@@ -1,0 +1,51 @@
+files:
+  - path: dev
+    directory: true
+    mode: "0755"
+  - path: init
+    source: /blobs/init
+    mode: "0755"
+  - path: nsm.ko
+    source: /blobs/nsm.ko
+    mode: "0755"
+
+  - path: rootfs/dev
+    directory: true
+    mode: "0755"
+  - path: rootfs/run
+    directory: true
+    mode: "0755"
+  - path: rootfs/sys
+    directory: true
+    mode: "0755"
+  - path: rootfs/var
+    directory: true
+    mode: "0755"
+  - path: rootfs/proc
+    directory: true
+    mode: "0755"
+  - path: rootfs/tmp
+    directory: true
+    mode: "0755"
+
+  - path: rootfs/etc/ssl/certs/ca-certificates.crt
+    source: /blobs/ca-certificates.crt
+    mode: "0644"
+
+  - path: rootfs/sbin/pid1
+    source: /blobs/pid1
+    mode: "0755"
+
+  - path: rootfs/sbin/chronyd
+    source: /blobs/chronyd
+    mode: "0755"
+  - path: rootfs/lib/ld-musl-x86_64.so.1
+    source: /blobs/ld-musl-x86_64.so.1
+    mode: "0755"
+  - path: rootfs/etc/chrony.conf
+    source: /eiffel/chrony.conf
+    mode: "0644"
+  - path: rootfs/etc/passwd
+    source: /eiffel/passwd
+    mode: "0644"
+
