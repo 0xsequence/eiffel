@@ -2,7 +2,7 @@
 FROM rust AS eif_build
 
 RUN mkdir /workspace
-ADD https://github.com/aws/aws-nitro-enclaves-image-format.git#main /workspace
+RUN git clone --depth 1 -b main https://github.com/aws/aws-nitro-enclaves-image-format.git /workspace
 
 WORKDIR /workspace
 
@@ -13,10 +13,10 @@ RUN cargo build --example eif_build
 ###############################################################################
 FROM alpine AS chrony
 
-RUN apk add linux-headers build-base bison asciidoctor
+RUN apk add git linux-headers build-base bison asciidoctor
 
 RUN mkdir /workspace
-ADD https://gitlab.com/chrony/chrony.git#4.5 /workspace
+RUN git clone --depth 1 -b 4.5 https://gitlab.com/chrony/chrony.git /workspace
 
 WORKDIR /workspace
 
