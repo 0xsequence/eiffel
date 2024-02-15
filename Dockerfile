@@ -1,6 +1,7 @@
 ###############################################################################
 FROM rust AS eif_build
 
+RUN mkdir /workspace
 ADD https://github.com/aws/aws-nitro-enclaves-image-format.git#main /workspace
 
 WORKDIR /workspace
@@ -14,6 +15,7 @@ FROM alpine AS chrony
 
 RUN apk add linux-headers build-base bison asciidoctor
 
+RUN mkdir /workspace
 ADD https://gitlab.com/chrony/chrony.git#4.5 /workspace
 
 WORKDIR /workspace
@@ -27,6 +29,7 @@ RUN make && make install
 ###############################################################################
 FROM golang:1.21-alpine3.19 AS pid1
 
+RUN mkdir /workspace
 WORKDIR /workspace
 
 ADD pid1/go.mod pid1/go.sum ./
