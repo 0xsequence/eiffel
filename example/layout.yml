@@ -1,3 +1,4 @@
+#
 files:
   - path: cmd
     source: /workspace/cmd
@@ -5,6 +6,6 @@ files:
   - path: env
     source: /workspace/env
     mode: "0644"
-  - path: rootfs/app/your-binary
-    source: /workspace/your-binary
+  - path: rootfs/app/example
+    source: /workspace/example
     mode: "0755"
