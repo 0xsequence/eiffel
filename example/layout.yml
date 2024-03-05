@@ -1,11 +1,17 @@
-#
+# Add the files located at `source` (inside the container) to the `path` location in the enclave
 files:
+  # cmd is a file that specifies the binary to execute and all its arguments (one per line)
+  # for eiffel applications the first line should be "/sbin/pid1" which spawns additional processes (one per line)
   - path: cmd
     source: /workspace/cmd
     mode: "0644"
+
+  # env is the list of environment variables to pass to the application in a format of KEY=VALUE
   - path: env
     source: /workspace/env
     mode: "0644"
+
+  # the application binary
   - path: rootfs/app/example
     source: /workspace/example
     mode: "0755"
