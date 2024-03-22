@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log"
 	"os"
@@ -10,12 +11,15 @@ import (
 )
 
 func main() {
-	commands := []*exec.Cmd{exec.Command("/sbin/chronyd", "-d")}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	wg, ctx := errgroup.WithContext(ctx)
+
+	commands := []*exec.Cmd{exec.CommandContext(ctx, "/sbin/chronyd", "-d")}
 	for _, arg := range os.Args[1:] {
-		commands = append(commands, exec.Command(arg))
+		commands = append(commands, exec.CommandContext(ctx, arg))
 	}
 
-	var wg errgroup.Group
 	for _, cmd := range commands {
 		cmd := cmd
 
