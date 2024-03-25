@@ -1,17 +1,18 @@
 ###############################################################################
-FROM rust AS eif_build
+FROM rust:1.77.0 AS eif_build
 
 RUN mkdir /workspace
-RUN git clone --depth 1 -b main https://github.com/aws/aws-nitro-enclaves-image-format.git /workspace
-
 WORKDIR /workspace
+
+RUN git clone https://github.com/aws/aws-nitro-enclaves-image-format.git . \
+    && git checkout d0d224b8b626db5fcc2d7b685bdd229991bbf0a7
 
 RUN cargo build --example eif_build
 # Executable at /workspace/target/debug/examples/eif_build
 
 
 ###############################################################################
-FROM alpine AS chrony
+FROM alpine:3.19 AS chrony
 
 RUN apk add git linux-headers build-base bison asciidoctor
 
