@@ -12,12 +12,12 @@ RUN cargo build --example eif_build
 
 
 ###############################################################################
-FROM alpine:3.19 AS chrony
+FROM alpine:3.22 AS chrony
 
 RUN apk add git linux-headers build-base bison asciidoctor
 
 RUN mkdir /workspace
-RUN git clone --depth 1 -b 4.5 https://gitlab.com/chrony/chrony.git /workspace
+RUN git clone --depth 1 -b 4.8 https://gitlab.com/chrony/chrony.git /workspace
 
 WORKDIR /workspace
 
@@ -28,7 +28,7 @@ RUN make && make install
 
 
 ###############################################################################
-FROM golang:1.21-alpine3.19 AS pid1
+FROM golang:1.25.3-alpine3.22 AS pid1
 
 RUN mkdir /workspace
 WORKDIR /workspace
@@ -43,15 +43,15 @@ RUN go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /out/pid1 .
 FROM ubuntu:22.04
 
 COPY --chmod=755 --from=eif_build /workspace/target/debug/examples/eif_build /usr/bin/eif_build
-ADD --chmod=755 https://github.com/linuxkit/linuxkit/releases/download/v1.0.1/linuxkit-linux-amd64 /usr/bin/linuxkit
+ADD --chmod=755 https://github.com/linuxkit/linuxkit/releases/download/v1.8.2/linuxkit-linux-amd64 /usr/bin/linuxkit
 
 # TODO: compile all these blobs at build-time
 RUN mkdir /blobs
-ADD https://github.com/aws/aws-nitro-enclaves-cli/raw/ec002ccc722051d01c9a00d68e485977b3a9ad08/blobs/x86_64/init /blobs/init
-ADD https://github.com/aws/aws-nitro-enclaves-cli/raw/ec002ccc722051d01c9a00d68e485977b3a9ad08/blobs/x86_64/nsm.ko /blobs/nsm.ko
-ADD https://github.com/aws/aws-nitro-enclaves-cli/raw/ec002ccc722051d01c9a00d68e485977b3a9ad08/blobs/x86_64/bzImage /blobs/bzImage
-ADD https://github.com/aws/aws-nitro-enclaves-cli/raw/ec002ccc722051d01c9a00d68e485977b3a9ad08/blobs/x86_64/bzImage.config /blobs/bzImage.config
-ADD https://github.com/aws/aws-nitro-enclaves-cli/raw/ec002ccc722051d01c9a00d68e485977b3a9ad08/blobs/x86_64/cmdline /blobs/cmdline
+ADD https://github.com/aws/aws-nitro-enclaves-cli/raw/refs/tags/v1.4.3/blobs/x86_64/init /blobs/init
+ADD https://github.com/aws/aws-nitro-enclaves-cli/raw/refs/tags/v1.4.3/blobs/x86_64/nsm.ko /blobs/nsm.ko
+ADD https://github.com/aws/aws-nitro-enclaves-cli/raw/refs/tags/v1.4.3/blobs/x86_64/bzImage /blobs/bzImage
+ADD https://github.com/aws/aws-nitro-enclaves-cli/raw/refs/tags/v1.4.3/blobs/x86_64/bzImage.config /blobs/bzImage.config
+ADD https://github.com/aws/aws-nitro-enclaves-cli/raw/refs/tags/v1.4.3/blobs/x86_64/cmdline /blobs/cmdline
 
 COPY --from=pid1 /out/pid1 /blobs/pid1
 COPY --from=chrony /out/sbin/chronyd /blobs/chronyd
