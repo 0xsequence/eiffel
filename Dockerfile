@@ -14,6 +14,11 @@ RUN RUSTFLAGS="--allow non_local_definitions" cargo build --example eif_build
 ###############################################################################
 FROM alpine:3.23 AS chrony
 
+# eMudhra CA compromise: the enclave ships this stage's CA bundle, so refuse one that still
+# trusts the compromised intermediates.
+ARG CA_CERTIFICATES_MIN=20261020-r0
+RUN apk add --no-cache --upgrade "ca-certificates-bundle>=${CA_CERTIFICATES_MIN}"
+
 RUN apk add git linux-headers build-base bison asciidoctor
 
 RUN mkdir /workspace
@@ -28,7 +33,7 @@ RUN make && make install
 
 
 ###############################################################################
-FROM golang:1.26.2-alpine3.23 AS pid1
+FROM golang:1.26.10-alpine3.23 AS pid1
 
 RUN mkdir /workspace
 WORKDIR /workspace
