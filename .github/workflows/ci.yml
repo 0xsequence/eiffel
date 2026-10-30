@@ -28,3 +28,19 @@ jobs:
           set -eux
           cargo build --release --locked -p eiffel-init --target x86_64-unknown-linux-musl
           ! readelf -lW target/x86_64-unknown-linux-musl/release/eiffel-init | grep -q interpreter
+
+      # eiffel-init derives the PTP ioctl request numbers from nix's ioc macros and
+      # its own struct definitions. This compiles the same ioctls out of the header
+      # of the kernel the image pins and checks the two agree, so a uapi change fails
+      # here rather than leaving an enclave unable to set its clock. kernel-src stops
+      # at the unpacked tree, so this costs a download and not a kernel build.
+      - name: Check the PTP ioctl numbers against the pinned kernel's header
+        run: |
+          set -eux
+          docker build --target kernel-src -t eiffel-kernel-src:ci .
+          docker run --rm -v "$PWD/.github:/check:ro" eiffel-kernel-src:ci sh -ec '
+            gcc -I/linux/include/uapi -I/linux/include/generated/uapi \
+                -I/linux/arch/x86/include/uapi -I/linux/arch/x86/include/generated/uapi \
+                -o /tmp/numbers /check/ptp-ioctl-numbers.c
+            /tmp/numbers' > /tmp/ptp-numbers.txt
+          diff -u .github/ptp-ioctl-numbers.txt /tmp/ptp-numbers.txt
