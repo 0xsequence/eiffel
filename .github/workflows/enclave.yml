@@ -32,22 +32,37 @@ jobs:
           sha256sum -c example.eif.sha256sum
           cat example.pcrs.json
 
+      # A second EIF whose only program logs and exits 0, so the boot test can assert
+      # what the example (which serves over vsock and prints nothing) cannot.
+      - name: Build the boot-test EIF
+        run: |
+          set -eux
+          mkdir -p /tmp/boot-test /tmp/boot-out
+          gcc -static -O2 -o /tmp/boot-test/hello .github/hello.c
+          cp .github/hello-layout.yml /tmp/boot-test/layout.yml
+          docker run --rm -v /tmp/boot-test:/workspace -v /tmp/boot-out:/out eiffel:ci hello
+
+      # The harness answers the heartbeat on the host's own vsock loopback, which
+      # needs this module. modprobe has to happen on the host, not in the container.
+      - name: Load the vsock loopback module
+        run: sudo modprobe vsock_loopback
+
       # Debian and Ubuntu build QEMU without libcbor, which compiles the nitro-enclave
       # machine and the virtio-nsm device out, whatever the version: the runner's own
       # qemu can never run this. Fedora's can, so the test runs in a Fedora container.
       # --network host is what lets the AF_VSOCK listener in the script reach the guest;
       # /dev/kvm only gates the time assertions, and the script says so when it is absent.
-      - name: Boot the example EIF under QEMU
+      - name: Boot the test EIF under QEMU
         run: |
           set -eux
           KVM=()
           if [ -e /dev/kvm ]; then KVM=(--device /dev/kvm); fi
           docker run --rm --network host "${KVM[@]}" \
-            -v "$PWD:/eiffel" -w /eiffel fedora:43 bash -ec '
+            -v "$PWD:/eiffel" -v /tmp/boot-out:/tmp/boot-out:ro -w /eiffel fedora:43 bash -ec '
               export PATH="$PATH:$HOME/.cargo/bin"
               dnf install -y qemu-system-x86-core cargo gcc python3
               cargo install --locked vhost-device-vsock
-              .github/qemu-boot-test.sh example/bin/example.eif'
+              .github/qemu-boot-test.sh /tmp/boot-out/hello.eif'
 
   reproducible:
     # Two full kernel compiles, so tags and manual runs only.
@@ -56,7 +71,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # Everything measured into PCR0/PCR1 must be byte-identical across builds of the
-      # same commit. eiffel-build itself is not measured and is not checked here.
+      # same commit: the kernel, and eiffel-init, which the init stage emits as /init.
+      # eiffel-build runs on the host, is not measured, and is not checked here.
       - name: Build the measured blobs twice from scratch
         run: |
           set -eux
