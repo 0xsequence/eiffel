@@ -2,10 +2,9 @@
 
 Turns a static binary plus three config files into an AWS Nitro Enclave image (`.eif`).
 
-Everything measured into the enclave's PCRs — the kernel, the bootstrap init, chronyd —
-is built from source in this repo. The host-side tool that packs them, `eiffel-build`,
-is a Rust binary in this workspace; it replaces the previous `eiffel.sh` + LinuxKit +
-`eif_build` pipeline.
+Everything measured into the enclave's PCRs — the kernel, the init, chronyd — is built
+from source in this repo. Both the host-side tool that packs them (`eiffel-build`) and
+the enclave's PID 1 (`eiffel-init`) are Rust binaries in this workspace.
 
 ## Using it
 
@@ -37,6 +36,37 @@ The `CMD` argument is the output name. `/out` receives:
 image was built. The values themselves move whenever anything in the enclave changes,
 including on this release: the ramdisks are now packed by `eiffel-build` rather than
 LinuxKit, and the bytes differ even though the contents do not.
+
+## Inside the enclave
+
+`/init` is `eiffel-init`, a static binary built from [`eiffel-init/`](eiffel-init). It
+replaces both AWS's `init.c` and the Go `pid1` eiffel used to ship. At boot it blocks
+every signal, mounts `devtmpfs` and points stdio at `/dev/console`, answers the vsock
+heartbeat `nitro-cli` waits for, reads and unlinks `/cmd` and `/env`, switches the root
+to `/rootfs`, mounts the usual set (`proc`, `sysfs`, `tmpfs` on `/run` and `/tmp`,
+`devpts`, `cgroup2`), then starts `chronyd` followed by every program listed in `cmd`.
+
+After that it only reaps. Children inherit the console directly rather than being piped
+through init, so their output interleaves as the console receives it. When the first of
+them exits — for any reason, including success — init sends `SIGTERM` to everything,
+gives it two seconds to flush, and reboots the enclave. Anything that fails earlier
+writes one line to the console saying why and reboots; the console is the only
+debugging channel an enclave has.
+
+## Migrating
+
+`cmd` lists only your own programs now. Drop the `/sbin/pid1` line when you bump your
+pinned tag:
+
+```
+/sbin/pid1      <- delete this line
+/app/example
+```
+
+`/sbin/pid1` is no longer in the rootfs, and a `cmd` that still names it is rejected at
+the first boot with `cmd: /sbin/pid1 is gone; list only your programs` on the console,
+rather than quietly starting nothing. PCR0, PCR1 and PCR2 all move with this release;
+re-pin them from `.pcrs.json`.
 
 ## `layout.yml`
 
