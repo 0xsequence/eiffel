@@ -1,0 +1,70 @@
+# The expensive half of CI: everything that compiles the kernel or boots an enclave.
+# Kept off pull_request so a PR does not pay for a kernel build.
+name: Enclave
+
+on:
+  push:
+    tags: ['v*']
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  image:
+    # Pinned rather than ubuntu-latest: GitHub is rolling that label from 24.04 to
+    # 26.04 between 2026-10-19 and 2026-11-19, so it is unpredictable right now.
+    # Revisit once the rollout has finished.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the eiffel image
+        run: docker build -t eiffel:ci .
+
+      - name: Build the customer example end to end
+        run: make -C example eif EIFFEL_IMAGE=eiffel:ci
+
+      - name: Check the expected outputs exist
+        run: |
+          set -eux
+          cd example/bin
+          test -s example.eif
+          test -s example.pcrs.json
+          sha256sum -c example.eif.sha256sum
+          cat example.pcrs.json
+
+      # Debian and Ubuntu build QEMU without libcbor, which compiles the nitro-enclave
+      # machine and the virtio-nsm device out, whatever the version: the runner's own
+      # qemu can never run this. Fedora's can, so the test runs in a Fedora container.
+      # --network host is what lets the AF_VSOCK listener in the script reach the guest;
+      # /dev/kvm only gates the time assertions, and the script says so when it is absent.
+      - name: Boot the example EIF under QEMU
+        run: |
+          set -eux
+          KVM=()
+          if [ -e /dev/kvm ]; then KVM=(--device /dev/kvm); fi
+          docker run --rm --network host "${KVM[@]}" \
+            -v "$PWD:/eiffel" -w /eiffel fedora:43 bash -ec '
+              export PATH="$PATH:$HOME/.cargo/bin"
+              dnf install -y qemu-system-x86-core cargo gcc python3
+              cargo install --locked vhost-device-vsock
+              .github/qemu-boot-test.sh example/bin/example.eif'
+
+  reproducible:
+    # Two full kernel compiles, so tags and manual runs only.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # Everything measured into PCR0/PCR1 must be byte-identical across builds of the
+      # same commit. eiffel-build itself is not measured and is not checked here.
+      - name: Build the measured blobs twice from scratch
+        run: |
+          set -eux
+          for run in 1 2; do
+            docker build --no-cache --target kernel -t eiffel-kernel:$run .
+            docker build --no-cache --target init -t eiffel-init-stage:$run .
+            docker run --rm eiffel-kernel:$run sha256sum /out/bzImage | cut -d' ' -f1 > kernel.$run
+            docker run --rm eiffel-init-stage:$run sha256sum /init | cut -d' ' -f1 > init.$run
+          done
+          diff kernel.1 kernel.2
+          diff init.1 init.2

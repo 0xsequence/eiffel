@@ -7,9 +7,18 @@
 # python harness below answers. Nothing here is Nitro-specific beyond the machine
 # type, so it runs on a plain runner (TCG when /dev/kvm is absent).
 #
-# Requires QEMU >= 9.2 built with libcbor and gnutls; the caller checks for the
-# machine type and skips this script when it is missing.
+# Requires: bash, python3, vhost-device-vsock and a qemu-system-x86_64 that has the
+# nitro-enclave machine (QEMU >= 9.2 built with libcbor and gnutls). Debian and Ubuntu
+# build QEMU without libcbor at every version, so CI runs this inside a Fedora
+# container that has all four; /dev/kvm is passed in where the runner has one.
 set -euo pipefail
+
+# A QEMU without the machine type used to make the caller skip this test silently,
+# which it did on every run for months. Fail loudly instead.
+if ! qemu-system-x86_64 -M help | grep -q '^nitro-enclave'; then
+  echo "qemu-system-x86_64 has no nitro-enclave machine type: it was built without libcbor" >&2
+  exit 1
+fi
 
 EIF=${1:?usage: qemu-boot-test.sh <eif>}
 RUN=$(mktemp -d)

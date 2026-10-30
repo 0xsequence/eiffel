@@ -59,7 +59,7 @@ RUN make && make install && ! readelf -lW /out/sbin/chronyd | grep -q interprete
 
 
 ###############################################################################
-FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0 AS kernel
+FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0 AS kernel-src
 
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
@@ -79,6 +79,13 @@ WORKDIR /linux
 # AWS's fix for the parent/enclave vsock deadlock, v3 as posted to netdev (not merged; see the patch header).
 COPY kernel/0001-vsock-virtio-Remove-queued_replies-pushback-logic.patch /tmp/
 RUN patch -p1 < /tmp/0001-vsock-virtio-Remove-queued_replies-pushback-logic.patch
+
+
+###############################################################################
+# Split off kernel-src above so anything that only needs the unpacked tree (the PTP
+# uapi header check in CI) can stop there instead of compiling a kernel. The build
+# steps below are unchanged, so bzImage is byte-for-byte what it was.
+FROM kernel-src AS kernel
 
 # AWS's microvm config plus the in-tree Nitro Security Module driver (mainline since 6.8), so no nsm.ko.
 COPY kernel/microvm-kernel-config-x86_64 .config
