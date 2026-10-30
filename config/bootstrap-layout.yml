@@ -29,10 +29,6 @@ files:
     source: /blobs/ca-certificates.crt
     mode: "0644"
 
-  - path: rootfs/sbin/pid1
-    source: /blobs/pid1
-    mode: "0755"
-
   - path: rootfs/sbin/chronyd
     source: /blobs/chronyd
     mode: "0755"
