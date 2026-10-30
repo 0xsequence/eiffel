@@ -189,7 +189,6 @@ fn switch_root() {
         "/rootfs/sys",
         "/rootfs/run",
         "/rootfs/tmp",
-        "/rootfs/var",
     ] {
         mounts::mkdir(dir);
     }

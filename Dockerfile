@@ -1,9 +1,7 @@
-# Toolchain pins shared by the Alpine build stages below. These three decide the bytes of every blob
-# that is compiled here by Alpine (musl is linked into chronyd; gcc and binutils build it and the
-# kernel; init is a Rust stage now and uses none of them), so they are pinned exactly and the build
-# fails loudly when Alpine drops a version. Everything else the stages install (make, bison, perl,
-# ruby for the chrony man pages, ...) only has to work and is left to float. Bumping these moves
-# PCR0 and PCR1.
+# Toolchain pins for the kernel stage, the only thing Alpine still compiles here (init and the
+# builder are Rust stages and use none of them). They decide the bytes of bzImage, so they are
+# pinned exactly and the build fails loudly when Alpine drops a version; everything else the stage
+# installs (make, bison, perl, ...) only has to work and is left to float. Bumping these moves PCR0.
 ARG MUSL_VERSION=1.2.5-r24
 ARG GCC_VERSION=15.2.0-r2
 ARG BINUTILS_VERSION=2.45.1-r0
@@ -33,31 +31,6 @@ COPY eiffel-init ./eiffel-init
 
 RUN cargo build --release --locked -p eiffel-build
 # Executable at /workspace/target/release/eiffel-build
-
-
-###############################################################################
-FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0 AS chrony
-
-COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-
-ARG MUSL_VERSION GCC_VERSION BINUTILS_VERSION
-RUN apk add --no-cache git linux-headers build-base bison asciidoctor \
-    musl=${MUSL_VERSION} musl-dev=${MUSL_VERSION} gcc=${GCC_VERSION} binutils=${BINUTILS_VERSION}
-
-RUN mkdir /workspace
-# chrony tag 4.8
-RUN git clone --depth 1 -b 4.8 https://gitlab.com/chrony/chrony.git /workspace \
-    && test "$(git -C /workspace rev-parse HEAD)" = 9e8541e3c4c89bfb7a60b404f646fab57c69ce59
-
-WORKDIR /workspace
-
-RUN mkdir /out
-ENV SOURCE_DATE_EPOCH=1707421839
-# Static so the enclave carries no musl loader: the unpinned apk add above floats musl, and a
-# floating /lib/ld-musl-x86_64.so.1 in the bootstrap initrd moved PCR1 between builds.
-RUN LDFLAGS=-static ./configure --prefix=/out
-# Fail the build if chronyd still needs a dynamic loader (an ELF with PT_INTERP).
-RUN make && make install && ! readelf -lW /out/sbin/chronyd | grep -q interpreter
 
 
 ###############################################################################
@@ -94,7 +67,7 @@ COPY kernel/microvm-kernel-config-x86_64 .config
 RUN echo CONFIG_NSM=y >> .config && make ARCH=x86_64 olddefconfig && grep -q '^CONFIG_NSM=y' .config
 
 # The kernel embeds these in its version banner; fixed values keep bzImage reproducible.
-# Same arbitrary epoch as the chrony stage.
+# An arbitrary fixed epoch, not the build date.
 ENV SOURCE_DATE_EPOCH=1707421839
 RUN KBUILD_BUILD_TIMESTAMP="$(date -u -d @${SOURCE_DATE_EPOCH})" KBUILD_BUILD_USER=eiffel KBUILD_BUILD_HOST=eiffel KBUILD_BUILD_VERSION=1 \
     make ARCH=x86_64 -j"$(nproc)" bzImage \
@@ -116,8 +89,8 @@ COPY eiffel-build ./eiffel-build
 COPY eiffel-init ./eiffel-init
 
 ENV RUSTFLAGS="-C target-feature=+crt-static --remap-path-prefix=/workspace=/build --remap-path-prefix=/usr/local/cargo=/cargo"
-# Fail the build if init still needs a dynamic loader (an ELF with PT_INTERP),
-# the same check the chrony stage makes.
+# Fail the build if init still needs a dynamic loader (an ELF with PT_INTERP): the
+# bootstrap initrd carries no loader for it.
 RUN cargo build --release --locked -p eiffel-init --target x86_64-unknown-linux-musl \
     && cp target/x86_64-unknown-linux-musl/release/eiffel-init /init \
     && ! readelf -lW /init | grep -q interpreter
@@ -139,7 +112,6 @@ COPY --from=kernel /out/bzImage /out/bzImage.config /blobs/
 COPY kernel/cmdline /blobs/cmdline
 COPY --from=init /init /blobs/init
 
-COPY --from=chrony /out/sbin/chronyd /blobs/chronyd
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /blobs/ca-certificates.crt
 
 WORKDIR /eiffel

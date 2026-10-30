@@ -1,5 +1,5 @@
 # Customer layout for the QEMU boot test: one static binary and a cmd naming it.
-# chronyd comes from the bootstrap ramdisk, as it does for every image.
+# Nothing else runs in the enclave; eiffel-init keeps the clock itself.
 files:
   - path: cmd
     contents: "/app/hello\n"
