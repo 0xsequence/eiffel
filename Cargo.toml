@@ -1,0 +1,10 @@
+[workspace]
+resolver = "3"
+members = ["eiffel-build"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+strip = "symbols"
+opt-level = "s"
