@@ -18,22 +18,19 @@ RUN apk add --no-cache --upgrade "ca-certificates-bundle=${CA_CERTIFICATES}"
 
 
 ###############################################################################
-FROM rust:1.88.0@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0 AS eif_build
+# Host-side builder: layout YAML -> cpio.gz ramdisks -> EIF. Nothing it produces is
+# measured, so the pin here is only about a build that keeps working, not about PCRs.
+# The tag matches rust-toolchain.toml so rustup has nothing to download.
+FROM rust:1.94.1-bookworm@sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55 AS builder
 
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
-RUN mkdir /workspace
 WORKDIR /workspace
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY eiffel-build ./eiffel-build
 
-RUN git clone https://github.com/aws/aws-nitro-enclaves-image-format.git . \
-    && git checkout d0d224b8b626db5fcc2d7b685bdd229991bbf0a7
-
-# Upstream ships no Cargo.lock, so the crate set floats with crates.io; pin it for
-# reproducibility (without this the build breaks on aws-nitro-enclaves-cose's MSRV).
-COPY eif_build/Cargo.lock ./Cargo.lock
-
-RUN RUSTFLAGS="--allow non_local_definitions" cargo build --locked --example eif_build
-# Executable at /workspace/target/debug/examples/eif_build
+RUN cargo build --release --locked -p eiffel-build
+# Executable at /workspace/target/release/eiffel-build
 
 
 ###############################################################################
@@ -126,11 +123,15 @@ RUN go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /out/pid1 .
 
 
 ###############################################################################
-FROM ubuntu:26.04@sha256:c098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944
+FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
 
-COPY --chmod=755 --from=eif_build /workspace/target/debug/examples/eif_build /usr/bin/eif_build
-ADD --chmod=755 --checksum=sha256:18b97b0d83401dd88ade14f207eb26358d9a7fde5d3dc4b1e24bd8faf087be6f \
-    https://github.com/linuxkit/linuxkit/releases/download/v1.8.2/linuxkit-linux-amd64 /usr/bin/linuxkit
+# libssl3 is what aws-nitro-enclaves-image-format links against; ca-certificates is only
+# there for its (unused) KMS signing path.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --chmod=755 --from=builder /workspace/target/release/eiffel-build /usr/bin/eiffel-build
 
 RUN mkdir /blobs
 COPY --from=kernel /out/bzImage /out/bzImage.config /blobs/
@@ -141,11 +142,9 @@ COPY --from=pid1 /out/pid1 /blobs/pid1
 COPY --from=chrony /out/sbin/chronyd /blobs/chronyd
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /blobs/ca-certificates.crt
 
-ADD --chmod=755 eiffel.sh /app/
-
 WORKDIR /eiffel
 ADD ./config ./
 
-ENTRYPOINT ["/app/eiffel.sh"]
+ENTRYPOINT ["/usr/bin/eiffel-build"]
 
 CMD ["app"]

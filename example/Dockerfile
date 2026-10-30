@@ -1,3 +1,7 @@
+# The eiffel image this example builds against. Overridable so CI can point it at an
+# image it just built; customers pin a published tag.
+ARG EIFFEL_IMAGE=ghcr.io/0xsequence/eiffel:v0.3.0@sha256:d4aa946d7eb587e0554123efc3eaa5830a1428b0325ea239fe489e372f573dfe
+
 #
 # Base image for building the application
 #
@@ -18,7 +22,7 @@ RUN go build -v -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o ./bin/ex
 #
 # Switch to an eiffel context
 #
-FROM ghcr.io/0xsequence/eiffel:v0.3.0@sha256:d4aa946d7eb587e0554123efc3eaa5830a1428b0325ea239fe489e372f573dfe
+FROM ${EIFFEL_IMAGE}
 
 RUN mkdir /workspace
 
