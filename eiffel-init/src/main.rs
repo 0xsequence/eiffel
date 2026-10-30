@@ -2,8 +2,9 @@
 //!
 //! Replaces AWS's `init.c` and eiffel's Go `pid1` with one binary: it brings up the
 //! console, answers the heartbeat nitro-cli waits for, switches into the customer
-//! rootfs, mounts the usual filesystem set and then supervises the programs listed
-//! in `/cmd`. When the first of them exits, the enclave reboots.
+//! rootfs, mounts the usual filesystem set, sets the clock from the host's and then
+//! supervises the programs listed in `/cmd`. When the first of them exits, the
+//! enclave reboots.
 //!
 //! The console is the only debugging channel an enclave has, so every failure path
 //! logs one line explaining itself before acting.
@@ -45,6 +46,7 @@ mod config;
 mod mounts;
 mod supervise;
 mod sys;
+mod time_sync;
 
 /// The parent instance, which nitro-cli runs on.
 const PARENT_CID: u32 = 3;
@@ -81,6 +83,10 @@ fn main() {
     switch_root();
     mount_devtmpfs();
     mounts::apply();
+
+    // 7b. Set the clock from the host's before anything can observe it, so no
+    //     process ever sees time jump backwards.
+    time_sync::start();
 
     // 8., 9. and 10.
     supervise::run(&programs, &env)

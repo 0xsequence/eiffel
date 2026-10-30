@@ -1,0 +1,4 @@
+PTP_SYS_OFFSET_PRECISE2 0xc0403d11
+PTP_SYS_OFFSET2 0x43403d0e
+sizeof(struct ptp_sys_offset_precise) 64
+sizeof(struct ptp_sys_offset) 832
