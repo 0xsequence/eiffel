@@ -36,9 +36,6 @@ files:
   - path: rootfs/sbin/chronyd
     source: /blobs/chronyd
     mode: "0755"
-  - path: rootfs/lib/ld-musl-x86_64.so.1
-    source: /blobs/ld-musl-x86_64.so.1
-    mode: "0755"
   - path: rootfs/etc/chrony.conf
     source: /eiffel/chrony.conf
     mode: "0644"

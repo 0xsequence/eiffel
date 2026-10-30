@@ -10,10 +10,11 @@ ARG BINUTILS_VERSION=2.45.1-r0
 ###############################################################################
 FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0 AS certs
 
-# eMudhra CA compromise: the enclave and every stage that fetches over TLS use this bundle,
-# so refuse one that still trusts the compromised intermediates.
-ARG CA_CERTIFICATES_MIN=20261020-r0
-RUN apk add --no-cache --upgrade "ca-certificates-bundle>=${CA_CERTIFICATES_MIN}"
+# eMudhra CA compromise: the enclave and every stage that fetches over TLS use this bundle, so never
+# go below 20261020-r0, the first release that distrusts the compromised intermediates. Pinned exactly
+# because the bundle lands in the bootstrap initrd and therefore in PCR1.
+ARG CA_CERTIFICATES=20261020-r0
+RUN apk add --no-cache --upgrade "ca-certificates-bundle=${CA_CERTIFICATES}"
 
 
 ###############################################################################
@@ -40,7 +41,9 @@ FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9
 
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
-RUN apk add git linux-headers build-base bison asciidoctor
+ARG MUSL_VERSION GCC_VERSION BINUTILS_VERSION
+RUN apk add --no-cache git linux-headers build-base bison asciidoctor \
+    musl=${MUSL_VERSION} musl-dev=${MUSL_VERSION} gcc=${GCC_VERSION} binutils=${BINUTILS_VERSION}
 
 RUN mkdir /workspace
 # chrony tag 4.8
@@ -51,8 +54,11 @@ WORKDIR /workspace
 
 RUN mkdir /out
 ENV SOURCE_DATE_EPOCH=1707421839
-RUN ./configure --prefix=/out
-RUN make && make install
+# Static so the enclave carries no musl loader: the unpinned apk add above floats musl, and a
+# floating /lib/ld-musl-x86_64.so.1 in the bootstrap initrd moved PCR1 between builds.
+RUN LDFLAGS=-static ./configure --prefix=/out
+# Fail the build if chronyd still needs a dynamic loader (an ELF with PT_INTERP).
+RUN make && make install && ! readelf -lW /out/sbin/chronyd | grep -q interpreter
 
 
 ###############################################################################
@@ -133,7 +139,6 @@ COPY --from=init /init /blobs/init
 
 COPY --from=pid1 /out/pid1 /blobs/pid1
 COPY --from=chrony /out/sbin/chronyd /blobs/chronyd
-COPY --from=chrony /lib/ld-musl-x86_64.so.1 /blobs/ld-musl-x86_64.so.1
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /blobs/ca-certificates.crt
 
 ADD --chmod=755 eiffel.sh /app/
