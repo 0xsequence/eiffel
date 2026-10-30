@@ -1,0 +1,22 @@
+[package]
+name = "eiffel-init"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "eiffel-init"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+nix = { version = "0.30", default-features = false, features = [
+    "fs",
+    "ioctl",
+    "mount",
+    "process",
+    "reboot",
+    "signal",
+    "socket",
+    "time",
+] }

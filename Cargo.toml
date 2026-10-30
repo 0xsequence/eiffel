@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["eiffel-build"]
+members = ["eiffel-build", "eiffel-init"]
 
 [profile.release]
 panic = "abort"
