@@ -5,9 +5,6 @@ files:
   - path: init
     source: /blobs/init
     mode: "0755"
-  - path: nsm.ko
-    source: /blobs/nsm.ko
-    mode: "0755"
 
   - path: rootfs/dev
     directory: true
