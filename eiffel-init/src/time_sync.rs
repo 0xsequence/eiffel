@@ -164,11 +164,11 @@ fn discipline(fd: OwnedFd) {
 /// The frequency correction to send with this sample, if the run is long enough to
 /// have produced one.
 ///
-/// ponytail: the kernel PLL is slewing the clock while this measures it, so part of
-/// what it reads back as drift is its own correction. It is bounded by `MAX_PPM` and
-/// re-estimated every `FREQ_SETTLE`, which is enough for a guest whose reference is
-/// on the same TSC; a host that really drifts wants a chrony-style loop that models
-/// the slew, or `ENABLE_FREQ = false`.
+/// Known limitation: the kernel PLL is slewing the clock while this measures it, so
+/// part of what it reads back as drift is its own correction. It is bounded by
+/// `MAX_PPM` and re-estimated every `FREQ_SETTLE`, which is enough for a guest whose
+/// reference is on the same TSC; a host that really drifts wants a chrony-style loop
+/// that models the slew, or `ENABLE_FREQ = false`.
 fn next_freq(
     anchor: &mut Option<(Instant, i128)>,
     applied_ppm: &mut f64,
