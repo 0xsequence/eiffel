@@ -1,0 +1,11 @@
+# SHA-pinned actions and a pinned toolchain rot silently; this is what bumps them.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: monthly
