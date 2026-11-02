@@ -15,9 +15,6 @@ files:
   - path: rootfs/sys
     directory: true
     mode: "0755"
-  - path: rootfs/var
-    directory: true
-    mode: "0755"
   - path: rootfs/proc
     directory: true
     mode: "0755"
@@ -27,15 +24,5 @@ files:
 
   - path: rootfs/etc/ssl/certs/ca-certificates.crt
     source: /blobs/ca-certificates.crt
-    mode: "0644"
-
-  - path: rootfs/sbin/chronyd
-    source: /blobs/chronyd
-    mode: "0755"
-  - path: rootfs/etc/chrony.conf
-    source: /eiffel/chrony.conf
-    mode: "0644"
-  - path: rootfs/etc/passwd
-    source: /eiffel/passwd
     mode: "0644"
 

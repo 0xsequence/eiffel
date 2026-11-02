@@ -45,9 +45,9 @@ commit it came from. Every blob change moves PCR0 and PCR1.
 
 ## Pinned toolchain
 
-The Alpine stages install their packages from the repo at build time, so only
-the three packages that decide the bytes of the compiled blobs are pinned:
-`musl` (linked into init and chronyd), `gcc` and `binutils`. They are set once
+The kernel stage installs its packages from the repo at build time, so only the
+three that decide the bytes of `bzImage` are pinned: `musl`, `gcc` and
+`binutils`. They are set once
 as `MUSL_VERSION`, `GCC_VERSION` and `BINUTILS_VERSION` at the top of the
 Dockerfile. The CA bundle is pinned in the `certs` stage because the file
 itself is measured.

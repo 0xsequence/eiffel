@@ -9,10 +9,6 @@ use std::collections::HashMap;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-/// Spawned before anything from `/cmd`, exactly as the Go `pid1` did. PR 3 replaces
-/// it with time sync inside this binary.
-const CHRONYD: &str = "/sbin/chronyd";
-const CHRONYD_ARGS: &[&str] = &["-d"];
 const DEFAULT_PATH: &str = "/sbin:/usr/sbin:/bin:/usr/bin";
 /// How long children get to flush after SIGTERM before the enclave reboots.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
@@ -20,10 +16,8 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 /// Start every program, then reap until one of them exits.
 pub fn run(programs: &[String], env: &[(String, String)]) -> ! {
     let mut children: HashMap<Pid, &str> = HashMap::new();
-    let all = std::iter::once((CHRONYD, CHRONYD_ARGS))
-        .chain(programs.iter().map(|p| (p.as_str(), &[] as &[&str])));
-    for (path, args) in all {
-        children.insert(spawn(path, args, env), path);
+    for path in programs {
+        children.insert(spawn(path, env), path.as_str());
     }
 
     // One waitpid(-1) owns all reaping: orphans get reparented here too, and a
@@ -52,9 +46,9 @@ pub fn run(programs: &[String], env: &[(String, String)]) -> ! {
 
 /// stdio is inherited: fds 0-2 already point at the console, so there is nothing
 /// to pipe and no copy threads to fail.
-fn spawn(path: &str, args: &[&str], env: &[(String, String)]) -> Pid {
+fn spawn(path: &str, env: &[(String, String)]) -> Pid {
     let mut command = Command::new(path);
-    command.args(args).env_clear().envs(env.iter().cloned());
+    command.env_clear().envs(env.iter().cloned());
     if !env.iter().any(|(key, _)| key == "PATH") {
         command.env("PATH", DEFAULT_PATH);
     }

@@ -101,11 +101,6 @@ pub const OPS: &[Op] = &[
         flags: NDSE,
         data: None,
     },
-    // chronyd's driftfile directory. Goes away with chronyd itself.
-    Op::Mkdir { path: "/var/lib" },
-    Op::Mkdir {
-        path: "/var/lib/chrony",
-    },
 ];
 
 /// Run every op in order. A failed mount is fatal; a directory or symlink that is
@@ -175,8 +170,6 @@ mod tests {
                 ("devpts", "/dev/pts"),
                 ("sysfs", "/sys"),
                 ("cgroup2", "/sys/fs/cgroup"),
-                ("mkdir", "/var/lib"),
-                ("mkdir", "/var/lib/chrony"),
             ]
         );
     }

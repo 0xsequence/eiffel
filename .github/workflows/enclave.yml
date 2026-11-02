@@ -62,6 +62,16 @@ jobs:
       - name: Load the vsock loopback module
         run: sudo modprobe vsock_loopback
 
+      # /dev/ptp0 is the KVM_HC_CLOCK_PAIRING hypercall, so the time-sync half of the
+      # boot test needs KVM. Where the runner has one, make sure this user can open it;
+      # where it does not, the script skips those assertions and says so.
+      - name: Make /dev/kvm usable if the runner has one
+        continue-on-error: true
+        run: |
+          set -eux
+          test -e /dev/kvm && sudo chmod 666 /dev/kvm
+          ls -l /dev/kvm
+
       # Debian and Ubuntu build QEMU without libcbor, which compiles the nitro-enclave
       # machine and the virtio-nsm device out, whatever the version: the runner's own
       # qemu can never run this. Fedora's can, so the test runs in a Fedora container,

@@ -2,9 +2,10 @@
 
 Turns a static binary plus three config files into an AWS Nitro Enclave image (`.eif`).
 
-Everything measured into the enclave's PCRs — the kernel, the init, chronyd — is built
-from source in this repo. Both the host-side tool that packs them (`eiffel-build`) and
-the enclave's PID 1 (`eiffel-init`) are Rust binaries in this workspace.
+Everything measured into the enclave's PCRs — the kernel and the init — is built from
+source in this repo. Both the host-side tool that packs them (`eiffel-build`) and the
+enclave's PID 1 (`eiffel-init`) are Rust binaries in this workspace. Apart from your own
+rootfs, the bootstrap ramdisk now holds exactly two files: `/init` and a CA bundle.
 
 ## Using it
 
@@ -44,7 +45,7 @@ replaces both AWS's `init.c` and the Go `pid1` eiffel used to ship. At boot it b
 every signal, mounts `devtmpfs` and points stdio at `/dev/console`, answers the vsock
 heartbeat `nitro-cli` waits for, reads and unlinks `/cmd` and `/env`, switches the root
 to `/rootfs`, mounts the usual set (`proc`, `sysfs`, `tmpfs` on `/run` and `/tmp`,
-`devpts`, `cgroup2`), then starts `chronyd` followed by every program listed in `cmd`.
+`devpts`, `cgroup2`), sets the clock, then starts every program listed in `cmd`.
 
 After that it only reaps. Children inherit the console directly rather than being piped
 through init, so their output interleaves as the console receives it. When the first of
@@ -52,6 +53,31 @@ them exits — for any reason, including success — init sends `SIGTERM` to eve
 gives it two seconds to flush, and reboots the enclave. Anything that fails earlier
 writes one line to the console saying why and reboots; the console is the only
 debugging channel an enclave has.
+
+## Time
+
+`eiffel-init` keeps the clock itself; `chronyd` is gone, along with `/sbin/chronyd`,
+`/etc/chrony.conf`, `/etc/passwd` and `/var` in the rootfs.
+
+The time source is unchanged: `/dev/ptp0`, the host's `CLOCK_REALTIME` as the `ptp_kvm`
+driver exposes it. Reading it is a hypercall answered by the Nitro Hypervisor, not by
+the parent instance, so the parent cannot skew an enclave's clock. (Attestation document
+timestamps come from the NSM and never depend on the enclave clock either way.)
+
+What changed is when the correction lands. Init takes one measurement **before it starts
+any of your programs** and steps the clock if it is more than a millisecond out, so
+nothing ever observes time jumping backwards — chrony stepped on its first measurement,
+which could land after an app had already read the clock. From then on a thread samples
+every 4 seconds and hands the offset to the kernel PLL, which slews rather than steps.
+The console carries one line per boot and one every ten minutes after that:
+
+```
+ eiffel-init:  time: stepped by 841234567.891 ms
+ eiffel-init:  time: offset 3.4 us, freq +0.012 ppm, 150 samples
+```
+
+If `/dev/ptp0` never appears — it needs KVM's clock-pairing hypercall, so it is absent
+under emulation — init logs `time: /dev/ptp0 not present` once and boots anyway.
 
 ## Migrating
 
@@ -67,6 +93,9 @@ pinned tag:
 the first boot with `cmd: /sbin/pid1 is gone; list only your programs` on the console,
 rather than quietly starting nothing. PCR0, PCR1 and PCR2 all move with this release;
 re-pin them from `.pcrs.json`.
+
+Nothing to do for chrony's removal unless you were reading `/var/lib/chrony` or shipping
+your own `/etc/passwd` in the bootstrap layout; the rootfs no longer has either.
 
 ## `layout.yml`
 
