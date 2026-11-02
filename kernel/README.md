@@ -10,18 +10,25 @@ checksum live in the Dockerfile; this directory holds everything else.
   It is AWS's enclave-tuned config: virtio-mmio devices, vsock, the KVM PTP
   clock, and almost nothing else. The Dockerfile appends `CONFIG_NSM=y` so the
   attestation driver is built in instead of shipped as `nsm.ko`.
-- `0001-vsock-virtio-Remove-queued_replies-pushback-logic.patch`: AWS's
-  out-of-tree fix for a vsock deadlock between parent and enclave, rebased onto
-  the pinned kernel. Not upstream as of 6.18.
+- `0001-vsock-virtio-Remove-queued_replies-pushback-logic.patch`: AWS's fix
+  for a vsock deadlock between parent and enclave, v3 as posted to netdev in
+  April 2025 (acked by Michael Tsirkin, never merged; the patch header says
+  why). AWS ships v1 in its own enclave kernels; v3 adds a 256-packet
+  fairness limit so RX and TX work can't starve each other once the pushback
+  is gone. Its context lines are refreshed for 6.18; the code is as posted.
 - `cmdline`: the kernel command line, embedded in the EIF. Identical to AWS's.
 
 ## Bumping the kernel
 
 1. Change `KERNEL_VERSION` in the Dockerfile and the checksum from
    <https://cdn.kernel.org/pub/linux/kernel/v6.x/sha256sums.asc>.
-2. Build. If the patch fails to apply, rebase it: every hunk removes a use of
-   `queued_replies` in `net/vmw_vsock/virtio_transport.c`, so grep for that.
-   If the symbol is gone entirely, the fix landed upstream; drop the patch.
+2. Build. If the patch fails to apply, check
+   <https://lore.kernel.org/all/20250402150646.42855-1-graf@amazon.com/> for a
+   newer version first, then rebase: the hunks remove every use of
+   `queued_replies` in `net/vmw_vsock/virtio_transport.c` and add a
+   `VSOCK_MAX_PKTS_PER_WORK` counter to the RX and TX work loops. If
+   `queued_replies` is gone from the file, upstream fixed it some other way;
+   drop the patch.
 3. The config needs no change. `make olddefconfig` keeps every choice in the
    file and picks defaults for options added since it was written. Warnings
    like `symbol value 'm' invalid for ...` mean an option changed type and

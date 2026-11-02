@@ -1,7 +1,9 @@
-From 743e4685e7d2429022eaa01f0b2776482f1d6276 Mon Sep 17 00:00:00 2001
 From: Alexander Graf <graf@amazon.com>
-Date: Fri, 15 Nov 2024 09:26:16 +0000
-Subject: [PATCH] vsock/virtio: Remove queued_replies pushback logic
+Date: Wed, 2 Apr 2025 15:06:46 +0000
+Subject: [PATCH v3] vsock/virtio: Remove queued_replies pushback logic
+Message-Id: <20250402150646.42855-1-graf@amazon.com>
+Link: https://lore.kernel.org/all/20250402150646.42855-1-graf@amazon.com/
+Acked-by: Michael S. Tsirkin <mst@redhat.com>
 
 Ever since the introduction of the virtio vsock driver, it included
 pushback logic that blocks it from taking any new RX packets until the
@@ -29,17 +31,40 @@ To resolve this, let's remove that pushback logic altogether and rely on
 higher levels (like credits) to ensure we do not consume unbounded
 memory.
 
-Fixes: 0ea9e1d3a9e ("VSOCK: Introduce virtio_transport.ko")
+RX and TX queues share the same work queue. To prevent starvation of TX
+by an RX flood and vice versa now that the pushback logic is gone, let's
+deliberately reschedule RX and TX work after a fixed threshold (256) of
+packets to process.
+
+Fixes: 0ea9e1d3a9e3 ("VSOCK: Introduce virtio_transport.ko")
 Signed-off-by: Alexander Graf <graf@amazon.com>
 
-[eiffel: rebased from AWS aws-nitro-enclaves-sdk-bootstrap (6.6.79) onto
- linux 6.18.60; also drops the `reply`, `restart_rx` and `out:` leftovers the original
- left dead. Origin: aws-nitro-enclaves-sdk-bootstrap commit f718dea6,
- kernel/0001-vsock-virtio-Remove-queued_replies-pushback-logic.patch]
+[eiffel: v3 with its context lines refreshed against linux 6.18.60 so it
+ applies without fuzz; the code change is as posted. Not
+ merged upstream: Stefan Hajnoczi objected on v2 that without
+ queued_replies a peer can flood the other side with packets that require
+ replies (OP_REQUEST, OP_SHUTDOWN, OP_CREDIT_REQUEST) and exhaust its
+ memory, and the maintainers want a per-socket pending-reply design
+ instead. For an enclave the only peer is its own parent instance, which
+ can already stop it outright, so the deadlock fix is worth more to us
+ than that bound. AWS ships v1 of this patch in its 6.6 enclave kernels.]
 ---
 --- a/net/vmw_vsock/virtio_transport.c
 +++ b/net/vmw_vsock/virtio_transport.c
-@@ -44,8 +44,6 @@
+@@ -26,6 +26,12 @@
+ static DEFINE_MUTEX(the_virtio_vsock_mutex); /* protects the_virtio_vsock */
+ static struct virtio_transport virtio_transport; /* forward declaration */
+ 
++/*
++ * Max number of RX packets transferred before requeueing so we do
++ * not starve TX traffic because they share the same work queue.
++ */
++#define VSOCK_MAX_PKTS_PER_WORK 256
++
+ struct virtio_vsock {
+ 	struct virtio_device *vdev;
+ 	struct virtqueue *vqs[VSOCK_VQ_MAX];
+@@ -44,8 +50,6 @@
  	struct work_struct send_pkt_work;
  	struct sk_buff_head send_pkt_queue;
  
@@ -48,33 +73,40 @@ Signed-off-by: Alexander Graf <graf@amazon.com>
  	/* The following fields are protected by rx_lock.  vqs[VSOCK_VQ_RX]
  	 * must be accessed with rx_lock held.
  	 */
-@@ -158,7 +156,6 @@
+@@ -158,7 +162,7 @@
  		container_of(work, struct virtio_vsock, send_pkt_work);
  	struct virtqueue *vq;
  	bool added = false;
 -	bool restart_rx = false;
++	int pkts = 0;
  
  	mutex_lock(&vsock->tx_lock);
  
-@@ -169,30 +166,16 @@
+@@ -169,14 +173,17 @@
  
  	for (;;) {
  		struct sk_buff *skb;
 -		bool reply;
  		int ret;
  
++		if (++pkts > VSOCK_MAX_PKTS_PER_WORK) {
++			/* Allow other works on the same queue to run */
++			queue_work(virtio_vsock_workqueue, work);
++			break;
++		}
++
  		skb = virtio_vsock_skb_dequeue(&vsock->send_pkt_queue);
  		if (!skb)
  			break;
- 
--		reply = virtio_vsock_skb_reply(skb);
 -
+-		reply = virtio_vsock_skb_reply(skb);
+ 
  		ret = virtio_transport_send_skb(skb, vq, vsock, GFP_KERNEL);
  		if (ret < 0) {
- 			virtio_vsock_skb_queue_head(&vsock->send_pkt_queue, skb);
+@@ -184,17 +191,6 @@
  			break;
--		}
--
+ 		}
+ 
 -		if (reply) {
 -			struct virtqueue *rx_vq = vsock->vqs[VSOCK_VQ_RX];
 -			int val;
@@ -84,10 +116,12 @@ Signed-off-by: Alexander Graf <graf@amazon.com>
 -			/* Do we now have resources to resume rx processing? */
 -			if (val + 1 == virtqueue_get_vring_size(rx_vq))
 -				restart_rx = true;
- 		}
- 
+-		}
+-
  		added = true;
-@@ -203,9 +186,6 @@
+ 	}
+ 
+@@ -203,9 +199,6 @@
  
  out:
  	mutex_unlock(&vsock->tx_lock);
@@ -97,7 +131,7 @@ Signed-off-by: Alexander Graf <graf@amazon.com>
  }
  
  /* Caller need to hold RCU for vsock.
-@@ -261,9 +241,6 @@
+@@ -261,9 +254,6 @@
  	 */
  	if (!skb_queue_empty_lockless(&vsock->send_pkt_queue) ||
  	    virtio_transport_send_skb_fast_path(vsock, skb)) {
@@ -107,7 +141,7 @@ Signed-off-by: Alexander Graf <graf@amazon.com>
  		virtio_vsock_skb_queue_tail(&vsock->send_pkt_queue, skb);
  		queue_work(virtio_vsock_workqueue, &vsock->send_pkt_work);
  	}
-@@ -277,7 +254,7 @@
+@@ -277,7 +267,7 @@
  virtio_transport_cancel_pkt(struct vsock_sock *vsk)
  {
  	struct virtio_vsock *vsock;
@@ -116,17 +150,17 @@ Signed-off-by: Alexander Graf <graf@amazon.com>
  
  	rcu_read_lock();
  	vsock = rcu_dereference(the_virtio_vsock);
-@@ -286,18 +263,8 @@
+@@ -286,18 +276,8 @@
  		goto out_rcu;
  	}
  
 -	cnt = virtio_transport_purge_skbs(vsk, &vsock->send_pkt_queue);
--
++	virtio_transport_purge_skbs(vsk, &vsock->send_pkt_queue);
+ 
 -	if (cnt) {
 -		struct virtqueue *rx_vq = vsock->vqs[VSOCK_VQ_RX];
 -		int new_cnt;
-+	virtio_transport_purge_skbs(vsk, &vsock->send_pkt_queue);
- 
+-
 -		new_cnt = atomic_sub_return(cnt, &vsock->queued_replies);
 -		if (new_cnt + cnt >= virtqueue_get_vring_size(rx_vq) &&
 -		    new_cnt < virtqueue_get_vring_size(rx_vq))
@@ -136,10 +170,12 @@ Signed-off-by: Alexander Graf <graf@amazon.com>
  	ret = 0;
  
  out_rcu:
-@@ -368,18 +335,6 @@
- 		queue_work(virtio_vsock_workqueue, &vsock->send_pkt_work);
- }
+@@ -366,18 +346,6 @@
  
+ 	if (added)
+ 		queue_work(virtio_vsock_workqueue, &vsock->send_pkt_work);
+-}
+-
 -/* Is there space left for replies to rx packets? */
 -static bool virtio_transport_more_replies(struct virtio_vsock *vsock)
 -{
@@ -150,35 +186,33 @@ Signed-off-by: Alexander Graf <graf@amazon.com>
 -	val = atomic_read(&vsock->queued_replies);
 -
 -	return val < virtqueue_get_vring_size(vq);
--}
--
+ }
+ 
  /* event_lock must be held */
- static int virtio_vsock_event_fill_one(struct virtio_vsock *vsock,
- 				       struct virtio_vsock_event *event)
-@@ -628,14 +583,6 @@
- 			unsigned int len, payload_len;
+@@ -614,6 +582,7 @@
+ 	struct virtio_vsock *vsock =
+ 		container_of(work, struct virtio_vsock, rx_work);
+ 	struct virtqueue *vq;
++	int pkts = 0;
+ 
+ 	mutex_lock(&vsock->rx_lock);
+ 
+@@ -629,11 +598,9 @@
  			struct virtio_vsock_hdr *hdr;
  			struct sk_buff *skb;
--
+ 
 -			if (!virtio_transport_more_replies(vsock)) {
 -				/* Stop rx until the device processes already
 -				 * pending replies.  Leave rx virtqueue
 -				 * callbacks disabled.
 -				 */
--				goto out;
--			}
++			if (++pkts > VSOCK_MAX_PKTS_PER_WORK) {
++				/* Allow other works on the same queue to run */
++				queue_work(virtio_vsock_workqueue, work);
+ 				goto out;
+ 			}
  
- 			skb = virtqueue_get_buf(vq, &len);
- 			if (!skb)
-@@ -665,7 +612,6 @@
- 		}
- 	} while (!virtqueue_enable_cb(vq));
- 
--out:
- 	if (vsock->rx_buf_nr < vsock->rx_buf_max_nr / 2)
- 		virtio_vsock_rx_fill(vsock);
- out_nofill:
-@@ -687,8 +633,6 @@
+@@ -687,8 +654,6 @@
  	vsock->rx_buf_max_nr = 0;
  	mutex_unlock(&vsock->rx_lock);
  

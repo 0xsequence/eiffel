@@ -79,7 +79,7 @@ ADD --checksum=sha256:3c2f44ef6acc021a7ad444d9a2e6ec1ef488ff09368793d0004a6080f6
 RUN mkdir /linux && tar -xJf /linux.tar.xz -C /linux --strip-components=1 && rm /linux.tar.xz
 WORKDIR /linux
 
-# AWS carries this out of tree: without it the parent and the enclave can deadlock each other's vsock queues.
+# AWS's fix for the parent/enclave vsock deadlock, v3 as posted to netdev (not merged; see the patch header).
 COPY kernel/0001-vsock-virtio-Remove-queued_replies-pushback-logic.patch /tmp/
 RUN patch -p1 < /tmp/0001-vsock-virtio-Remove-queued_replies-pushback-logic.patch
 
