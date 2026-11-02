@@ -8,14 +8,29 @@ on:
     branches: [master]
   workflow_dispatch:
 
+# Nothing here reads or writes anything through the API; CodeQL flagged the
+# default write-all token.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # A tag run is the one that validates a release, so let it finish.
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   image:
     # Pinned rather than ubuntu-latest: GitHub is rolling that label from 24.04 to
     # 26.04 between 2026-10-19 and 2026-11-19, so it is unpredictable right now.
     # Revisit once the rollout has finished.
     runs-on: ubuntu-24.04
+    # A kernel compile, an EIF build and a TCG boot. Generous, but a hung QEMU
+    # should not sit on a runner for six hours.
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Build the eiffel image
         run: docker build -t eiffel:ci .
@@ -49,27 +64,35 @@ jobs:
 
       # Debian and Ubuntu build QEMU without libcbor, which compiles the nitro-enclave
       # machine and the virtio-nsm device out, whatever the version: the runner's own
-      # qemu can never run this. Fedora's can, so the test runs in a Fedora container.
+      # qemu can never run this. Fedora's can, so the test runs in a Fedora container,
+      # digest-pinned like the images in the Dockerfile so a retag cannot change it.
       # --network host is what lets the AF_VSOCK listener in the script reach the guest;
       # /dev/kvm only gates the time assertions, and the script says so when it is absent.
+      # vhost-device-vsock is version-pinned too: it is the one thing CI installs from
+      # crates.io, and 0.3.0 is what the boot test was verified against.
       - name: Boot the test EIF under QEMU
         run: |
           set -eux
           KVM=()
           if [ -e /dev/kvm ]; then KVM=(--device /dev/kvm); fi
           docker run --rm --network host "${KVM[@]}" \
-            -v "$PWD:/eiffel" -v /tmp/boot-out:/tmp/boot-out:ro -w /eiffel fedora:43 bash -ec '
+            -v "$PWD:/eiffel" -v /tmp/boot-out:/tmp/boot-out:ro -w /eiffel \
+            fedora:43@sha256:a651ddf48ea28a06ed4e1e6519f51c9f47e7a5a138722ade87369b8fbb7e5b42 bash -ec '
               export PATH="$PATH:$HOME/.cargo/bin"
               dnf install -y qemu-system-x86-core cargo gcc python3
-              cargo install --locked vhost-device-vsock
+              cargo install --locked --version 0.3.0 vhost-device-vsock
               .github/qemu-boot-test.sh /tmp/boot-out/hello.eif'
 
   reproducible:
     # Two full kernel compiles, so tags and manual runs only.
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
+    # Four --no-cache stage builds, two of them a kernel.
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # Everything measured into PCR0/PCR1 must be byte-identical across builds of the
       # same commit: the kernel, and eiffel-init, which the init stage emits as /init.
       # eiffel-build runs on the host, is not measured, and is not checked here.
