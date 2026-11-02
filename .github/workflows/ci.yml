@@ -20,7 +20,9 @@ jobs:
     # 26.04 between 2026-10-19 and 2026-11-19, so it is unpredictable right now.
     # Revisit once the rollout has finished.
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # Higher than the other branches': the PTP ioctl check below downloads and
+    # unpacks a kernel tree on top of the lint, test and musl build.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
