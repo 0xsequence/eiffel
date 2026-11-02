@@ -5,14 +5,26 @@ on:
   push:
     branches: [master]
 
+# Nothing here reads or writes anything through the API; CodeQL flagged the
+# default write-all token.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   rust:
     # Pinned rather than ubuntu-latest: GitHub is rolling that label from 24.04 to
     # 26.04 between 2026-10-19 and 2026-11-19, so it is unpredictable right now.
     # Revisit once the rollout has finished.
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install the pinned toolchain
         run: rustup show active-toolchain || rustup toolchain install
       - run: cargo fmt --check

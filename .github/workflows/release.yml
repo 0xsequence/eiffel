@@ -5,18 +5,44 @@ on:
     tags:
       - "v*"
 
+# Nothing is granted by default; the one job that needs a token raises only
+# what it uses. CodeQL flagged the default write-all token.
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # A tag push publishes a release image: never cancel one.
+  cancel-in-progress: false
+
 jobs:
   docker:
-    runs-on: ubuntu-latest
+    # Pinned rather than ubuntu-latest: GitHub is rolling that label from 24.04 to
+    # 26.04 between 2026-10-19 and 2026-11-19, so it is unpredictable right now.
+    # Revisit once the rollout has finished.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
+      # Passed through env rather than interpolated: nothing a context expands to
+      # ever becomes shell source.
       - name: Log into Github registry
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
       - name: Docker build
         run: |
-          docker build --build-arg VERSION=${GITHUB_REF##*/} -t ghcr.io/0xsequence/eiffel:${GITHUB_REF##*/} -t ghcr.io/0xsequence/eiffel:latest .
-          docker push ghcr.io/0xsequence/eiffel:${GITHUB_REF##*/}
+          set -eux
+          VERSION=${GITHUB_REF##*/}
+          docker build --build-arg "VERSION=$VERSION" \
+            -t "ghcr.io/0xsequence/eiffel:$VERSION" \
+            -t ghcr.io/0xsequence/eiffel:latest .
+          docker push "ghcr.io/0xsequence/eiffel:$VERSION"
           docker push ghcr.io/0xsequence/eiffel:latest
