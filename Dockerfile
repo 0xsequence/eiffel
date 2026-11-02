@@ -1,8 +1,9 @@
 # Toolchain pins shared by the Alpine build stages below. These three decide the bytes of every blob
-# that is compiled here (musl is linked into init and chronyd; gcc and binutils produce all of them),
-# so they are pinned exactly and the build fails loudly when Alpine drops a version. Everything else
-# the stages install (make, bison, perl, ruby for the chrony man pages, ...) only has to work and is
-# left to float. Bumping these moves PCR0 and PCR1.
+# that is compiled here by Alpine (musl is linked into chronyd; gcc and binutils build it and the
+# kernel; init is a Rust stage now and uses none of them), so they are pinned exactly and the build
+# fails loudly when Alpine drops a version. Everything else the stages install (make, bison, perl,
+# ruby for the chrony man pages, ...) only has to work and is left to float. Bumping these moves
+# PCR0 and PCR1.
 ARG MUSL_VERSION=1.2.5-r24
 ARG GCC_VERSION=15.2.0-r2
 ARG BINUTILS_VERSION=2.45.1-r0
@@ -28,6 +29,7 @@ COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifica
 WORKDIR /workspace
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY eiffel-build ./eiffel-build
+COPY eiffel-init ./eiffel-init
 
 RUN cargo build --release --locked -p eiffel-build
 # Executable at /workspace/target/release/eiffel-build
@@ -100,33 +102,25 @@ RUN KBUILD_BUILD_TIMESTAMP="$(date -u -d @${SOURCE_DATE_EPOCH})" KBUILD_BUILD_US
 
 
 ###############################################################################
-FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0 AS init
+# PID 1 in the enclave. Measured into PCR1, so it is built static (no musl loader
+# in the initrd) and with every path remapped, leaving nothing of this machine in
+# the bytes. The tag matches rust-toolchain.toml so rustup has nothing to download
+# beyond the musl std the toolchain file asks for.
+FROM rust:1.94.1-bookworm@sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55 AS init
 
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
-ARG MUSL_VERSION GCC_VERSION BINUTILS_VERSION
-RUN apk add --no-cache git build-base linux-headers \
-    musl=${MUSL_VERSION} musl-dev=${MUSL_VERSION} gcc=${GCC_VERSION} binutils=${BINUTILS_VERSION}
-
-# Enclave bootstrap init from AWS; the same source their nitro-cli blobs are built from.
-RUN git clone https://github.com/aws/aws-nitro-enclaves-sdk-bootstrap.git /workspace \
-    && git -C /workspace checkout f718dea60a9d9bb8b8682fd852ad793912f3c5db
-WORKDIR /workspace/init
-RUN gcc -static -Wall -Wextra -Werror -O2 -flto -o /init init.c && strip --strip-all /init
-
-
-###############################################################################
-FROM golang:1.26.10-alpine3.23@sha256:a07f231c19b03e6106cf442f02a5bcf262147e744d15b7b5e4b6d81d420c70a0 AS pid1
-
-COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-
-RUN mkdir /workspace
 WORKDIR /workspace
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY eiffel-build ./eiffel-build
+COPY eiffel-init ./eiffel-init
 
-ADD pid1/go.mod pid1/go.sum ./
-RUN go mod download
-ADD pid1/ ./
-RUN go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /out/pid1 .
+ENV RUSTFLAGS="-C target-feature=+crt-static --remap-path-prefix=/workspace=/build --remap-path-prefix=/usr/local/cargo=/cargo"
+# Fail the build if init still needs a dynamic loader (an ELF with PT_INTERP),
+# the same check the chrony stage makes.
+RUN cargo build --release --locked -p eiffel-init --target x86_64-unknown-linux-musl \
+    && cp target/x86_64-unknown-linux-musl/release/eiffel-init /init \
+    && ! readelf -lW /init | grep -q interpreter
 
 
 ###############################################################################
@@ -145,7 +139,6 @@ COPY --from=kernel /out/bzImage /out/bzImage.config /blobs/
 COPY kernel/cmdline /blobs/cmdline
 COPY --from=init /init /blobs/init
 
-COPY --from=pid1 /out/pid1 /blobs/pid1
 COPY --from=chrony /out/sbin/chronyd /blobs/chronyd
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /blobs/ca-certificates.crt
 

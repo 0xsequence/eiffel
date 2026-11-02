@@ -30,3 +30,13 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+
+      # eiffel-init is what the enclave runs, and the bootstrap initrd carries no
+      # dynamic loader for it. Build it the way the image does and prove it needs none.
+      - name: Build eiffel-init static for musl
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: |
+          set -eux
+          cargo build --release --locked -p eiffel-init --target x86_64-unknown-linux-musl
+          ! readelf -lW target/x86_64-unknown-linux-musl/release/eiffel-init | grep -q interpreter
