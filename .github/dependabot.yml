@@ -5,6 +5,7 @@ updates:
   - package-ecosystem: gomod
     directories:
       - "/example"
+      - "/pid1"
     schedule:
       interval: weekly
     open-pull-requests-limit: 0
